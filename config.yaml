@@ -1,0 +1,8 @@
+database:
+  path: "hostname_cache.db"
+
+dns:
+  server: "8.8.8.8"
+
+cache:
+  timeout: 3600
