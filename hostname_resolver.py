@@ -80,41 +80,9 @@ def load_config(config_path):
     with open(config_path, 'r') as file:
         return yaml.safe_load(file)
 
-def main(config_path):
-    config = load_config(config_path)
-    dns_cache_sync = DnsCacheSync(config)
-
-    last_dump_time = datetime.now()
-    dump_interval = timedelta(minutes=2)  # Set to your desired interval
-
-    try:
-        while True:
-            current_time = datetime.now()
-            if current_time - last_dump_time >= dump_interval:
-                # Time to dump the cache
-                print(dns_cache_sync.cacheToJson())
-                last_dump_time = current_time
-
-            # Non-blocking input check
-            if select.select([sys.stdin], [], [], 0.1)[0]:
-                ip_address = sys.stdin.readline().strip()
-                if ip_address == "exit":
-                    print("Exiting...")
-                    break
-                if ip_address:
-                    # Process the IP address here
-                    hostname = dns_cache_sync.checkTimestamp(ip_address)
-                    if not hostname:
-                        hostname = dns_cache_sync.getHost(ip_address)
-                        dns_cache_sync.updateCache(ip_address, hostname)
-                    print(f"Processed: {ip_address} -> {hostname}")
-    finally:
-        dns_cache_sync.closeConnection()
-
-
-
 def resolver(config_path):
-    ip_address = '142.250.189.174' 
+    if select.select([sys.stdin], [], [], 0.1)[0]:
+        ip_address = sys.stdin.readline().strip() 
     config = load_config(config_path)
     db = DnsCacheSync(config)
     hostname = db.checkTimestamp(ip_address)
@@ -126,6 +94,48 @@ def resolver(config_path):
         print(db.cacheToJson())
     db.closeConnection()
 
+def main(config_path):
+    config = load_config(config_path)
+    db = DnsCacheSync(config)
+
+    last_dump_time = datetime.now()
+    last_cleanup_time = datetime.now()
+    dump_interval = timedelta(minutes=config['jsonDump']['timeout'])
+    cleanup_interval = timedelta(minutes=config['cacheCleanup']['timeout']) 
+
+    try:
+        while True:
+            current_time = datetime.now()
+
+            if current_time - last_dump_time >= dump_interval:
+                print(db.cacheToJson())
+                last_dump_time = current_time
+            
+            if current_time - last_cleanup_time >= cleanup_interval:
+                print("Cache cleanup successful")
+                last_cleanup_time = current_time
+
+            if select.select([sys.stdin], [], [], 0.1)[0]:
+                ip_address = sys.stdin.readline().strip()
+                if ip_address == "exit":
+
+                    print("Exiting...")
+                    break
+
+                if ip_address:
+                    hostname = db.checkTimestamp(ip_address)
+
+                    if not hostname:
+                        hostname = db.getHost(ip_address)
+                        print("getHost() used, Time: ") # Time getHost() reverseDNS request
+                        db.updateCache(ip_address, hostname)
+
+                    print(f"Processed: {ip_address} -> {hostname}")
+
+    finally:
+        print("Closing cache")
+        db.closeConnection()
+
 
 if __name__ == '__main__':
     if len(sys.argv) != 2:
@@ -134,3 +144,5 @@ if __name__ == '__main__':
     config_path = sys.argv[1]
     main(config_path)
 
+#142.250.189.174 test ip address
+#sfo03s24-in-f14.1e100.net. test hostname

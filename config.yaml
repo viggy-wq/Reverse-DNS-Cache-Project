@@ -6,3 +6,9 @@ dns:
 
 cache:
   timeout: 3600
+
+jsonDump:
+  timeout: 2
+
+cacheCleanup:
+  timeout: 1
