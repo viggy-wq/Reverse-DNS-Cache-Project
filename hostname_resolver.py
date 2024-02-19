@@ -4,6 +4,7 @@ import sqlite3
 from datetime import datetime, timedelta
 import json
 import yaml
+import select
 
 CREATE_CACHE = '''
             CREATE TABLE IF NOT EXISTS cache (
@@ -39,6 +40,7 @@ class DnsCacheSync:
         if hostname:
             return hostname
         else:
+            #return None
             print("Error resolving hostname")
             self.closeConnection()  
             sys.exit(1) # Handle case as needed
@@ -78,18 +80,57 @@ def load_config(config_path):
     with open(config_path, 'r') as file:
         return yaml.safe_load(file)
 
-def test(config_path):
+def main(config_path):
+    config = load_config(config_path)
+    dns_cache_sync = DnsCacheSync(config)
+
+    last_dump_time = datetime.now()
+    dump_interval = timedelta(minutes=2)  # Set to your desired interval
+
+    try:
+        while True:
+            current_time = datetime.now()
+            if current_time - last_dump_time >= dump_interval:
+                # Time to dump the cache
+                print(dns_cache_sync.cacheToJson())
+                last_dump_time = current_time
+
+            # Non-blocking input check
+            if select.select([sys.stdin], [], [], 0.1)[0]:
+                ip_address = sys.stdin.readline().strip()
+                if ip_address == "exit":
+                    print("Exiting...")
+                    break
+                if ip_address:
+                    # Process the IP address here
+                    hostname = dns_cache_sync.checkTimestamp(ip_address)
+                    if not hostname:
+                        hostname = dns_cache_sync.getHost(ip_address)
+                        dns_cache_sync.updateCache(ip_address, hostname)
+                    print(f"Processed: {ip_address} -> {hostname}")
+    finally:
+        dns_cache_sync.closeConnection()
+
+
+
+def resolver(config_path):
+    ip_address = '142.250.189.174' 
     config = load_config(config_path)
     db = DnsCacheSync(config)
-    db.updateCache('142.250.189.174', db.getHost('142.250.189.174'))
-    print(db.cacheToJson())
+    hostname = db.checkTimestamp(ip_address)
+    if hostname:
+        db.updateCache(ip_address, hostname)
+        print(hostname)
+    else:
+        db.updateCache(ip_address, db.getHost(ip_address))
+        print(db.cacheToJson())
     db.closeConnection()
 
 
 if __name__ == '__main__':
     if len(sys.argv) != 2:
-        print("Config file missing")
+        print("Missing config file")
         sys.exit(1)
     config_path = sys.argv[1]
-    test(config_path)
+    main(config_path)
 
