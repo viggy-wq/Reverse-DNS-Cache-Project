@@ -20,6 +20,7 @@ INSERT_INTO_CACHE = '''
             ON CONFLICT(ip_address) 
             DO UPDATE SET hostname = ?, timestamp = ?
         '''
+CACHE_CLEANUP = 'DELETE FROM cache WHERE timestamp < ?'
 
 class DnsCacheSync:
     def __init__(self, config):
@@ -74,6 +75,21 @@ class DnsCacheSync:
 
     def closeConnection(self):
         self.conn.close()
+    
+    def cleanupCache(self):
+        current_time = datetime.now()
+        threshold_time = current_time - self.cache_timeout
+
+        # Convert the threshold time to string format for comparison in SQL query.
+        threshold_time_str = threshold_time.strftime('%Y-%m-%d %H:%M:%S')
+
+        cursor = self.conn.cursor()
+        # Delete entries older than the threshold time.
+        cursor.execute(CACHE_CLEANUP, (threshold_time_str,))
+        self.conn.commit()
+
+        print("Cache cleanup: Entries older than {} have been removed.".format(self.cache_timeout))
+
 
 
 def load_config(config_path):
@@ -112,6 +128,7 @@ def main(config_path):
                 last_dump_time = current_time
             
             if current_time - last_cleanup_time >= cleanup_interval:
+                db.cleanupCache
                 print("Cache cleanup successful")
                 last_cleanup_time = current_time
 
