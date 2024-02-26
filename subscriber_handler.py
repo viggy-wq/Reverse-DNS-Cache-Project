@@ -20,7 +20,7 @@ config = {
 class SubscriberDBSync:
     def __init__(self, config):
         self.db_path = config['database']['path']
-        self.client = paho.Client(client_id="test", callback_api_version=paho.CallbackAPIVersion.VERSION2)
+        self.client = paho.Client(client_id="subscriberDBsync", callback_api_version=paho.CallbackAPIVersion.VERSION2)
         self.client.on_message = self.onMessage
         self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
         cursor = self.conn.cursor()
@@ -32,7 +32,7 @@ class SubscriberDBSync:
             sys.exit(-1)
 
         self.client.subscribe("ip_address")
-        self.client.loop_start()
+        self.client.loop_forever()
     
     def insert(self, ip_address):
         cursor = self.conn.cursor()
@@ -52,6 +52,4 @@ class SubscriberDBSync:
             print(row)
 
 subscriber_db_sync = SubscriberDBSync(config)
-time.sleep(10)
-subscriber_db_sync.print_db()
 
