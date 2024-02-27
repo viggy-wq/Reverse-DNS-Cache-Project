@@ -8,7 +8,7 @@ cache:
   timeout: 3600
 
 jsonDump:
-  timeout: 1
+  timeout: 900
 
 cacheCleanup:
-  timeout: 2
+  timeout: 3600

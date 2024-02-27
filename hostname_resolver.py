@@ -5,6 +5,9 @@ from datetime import datetime, timedelta
 import json
 import yaml
 import select
+import paho.mqtt.client as paho
+import threading
+import time
 
 CREATE_CACHE = '''
             CREATE TABLE IF NOT EXISTS cache (
@@ -27,24 +30,70 @@ class DnsCacheSync:
         self.db_path = config['database']['path']
         self.dns_server = config['dns']['server']
         self.cache_timeout = timedelta(seconds=config['cache']['timeout'])
-        self.conn = sqlite3.connect(self.db_path)
+        self.json_dump_interval = config['jsonDump']['timeout'] 
+        self.client = paho.Client(client_id="dnsCachesync", callback_api_version=paho.CallbackAPIVersion.VERSION2)
+        self.client.on_message = self.onMessage
+        self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        self.conn.execute("PRAGMA busy_timeout = 30000")
         cursor = self.conn.cursor()
         cursor.execute(CREATE_CACHE)
         self.conn.commit()
-        
+
+    def onMessage(self, client, userdata, msg):
+        if msg.topic == "hostname_resolver_request":
+            requests = msg.payload.decode().split(" ")
+
+            for request in requests:
+                self.processRequest(request)
+
+            self.client.publish("server_availability", "READY", 0)
+                
+    def serverLoop(self):
+        if self.client.connect("localhost", 1883, 60) != 0:
+            print("Failed to connect to broker")
+            sys.exit(-1)
+
+        self.client.subscribe("hostname_resolver_request")
+        self.client.publish("server_availability", "READY", 0)
+        self.client.loop_forever()
+    
+    def routineLoop(self):
+        cache_to_json_interval_seconds = self.json_dump_interval
+        cleanup_cache_interval_seconds = 3600  # 1 hour in seconds
+
+        cache_to_json_counter = 0
+        cleanup_cache_counter = 0
+
+        while True:
+            start_time = time.time()
+
+                # Perform cache to JSON dump if the interval has elapsed
+            if cache_to_json_counter >= cache_to_json_interval_seconds:
+                self.cacheToJson()
+                cache_to_json_counter = 0  # Reset the counter
+
+                # Perform cache cleanup if the interval has elapsed
+            if cleanup_cache_counter >= cleanup_cache_interval_seconds:
+                self.cleanupCache()
+                cleanup_cache_counter = 0  # Reset the counter
+
+                # Calculate elapsed time and update counters
+            elapsed_time = time.time() - start_time
+            cache_to_json_counter += elapsed_time
+            cleanup_cache_counter += elapsed_time
+
     def getHost(self, ip):
         addr = dns.reversename.from_address(ip)
         my_resolver = dns.resolver.Resolver()
         my_resolver.nameservers = [self.dns_server]
-        hostname = str(my_resolver.resolve(addr, 'PTR')[0])
-        
-        if hostname:
-            return hostname
-        else:
-            #return None
-            print("Error resolving hostname")
-            self.closeConnection()  
-            sys.exit(1) # Handle case as needed
+
+        try:
+            hostname = str(my_resolver.resolve(addr, 'PTR')[0])
+        except dns.resolver.NXDOMAIN:
+            hostname = "Hostname not found"
+        except Exception as e:
+            hostname = f"Error resolving hostname: {e}"
+        return hostname
 
     def checkTimestamp(self, ip_address):
         cursor = self.conn.cursor()
@@ -70,8 +119,9 @@ class DnsCacheSync:
         cursor = self.conn.cursor()
         cursor.execute('SELECT * FROM cache')
         rows = cursor.fetchall()
-        cache_list = [{"ip_address": row[0], "hostname": row[1], "timestamp": row[2]} for row in rows]
-        return json.dumps(cache_list, indent=4)
+        cache_list = [{"ip_address": row[0], "hostname": row[1], "timestamp": row[2]} for row in rows]   
+        print("Cache to JSON: ", json.dumps(cache_list, indent=4))
+        self.client.publish("JSON", json.dumps(cache_list, indent=4), 0)
 
     def closeConnection(self):
         self.conn.close()
@@ -90,68 +140,24 @@ class DnsCacheSync:
 
         print("Cache cleanup: Entries older than {} have been removed.".format(self.cache_timeout))
 
+    def processRequest(self, ip_address):
+        hostname = self.checkTimestamp(ip_address)
+        if not hostname:
+            hostname = self.getHost(ip_address)
+            self.updateCache(ip_address, hostname)
+        print(f"Processed: {ip_address} -> {hostname}")
 
 
 def load_config(config_path):
     with open(config_path, 'r') as file:
         return yaml.safe_load(file)
 
-def resolver(config_path):
-    if select.select([sys.stdin], [], [], 0.1)[0]:
-        ip_address = sys.stdin.readline().strip() 
-    config = load_config(config_path)
-    db = DnsCacheSync(config)
-    hostname = db.checkTimestamp(ip_address)
-    if hostname:
-        db.updateCache(ip_address, hostname)
-        print(hostname)
-    else:
-        db.updateCache(ip_address, db.getHost(ip_address))
-        print(db.cacheToJson())
-    db.closeConnection()
-
 def main(config_path):
     config = load_config(config_path)
     db = DnsCacheSync(config)
 
-    last_dump_time = datetime.now()
-    last_cleanup_time = datetime.now()
-    dump_interval = timedelta(minutes=config['jsonDump']['timeout'])
-    cleanup_interval = timedelta(minutes=config['cacheCleanup']['timeout']) 
-
-    try:
-        while True:
-            current_time = datetime.now()
-
-            if current_time - last_dump_time >= dump_interval:
-                print(db.cacheToJson())
-                last_dump_time = current_time
-            
-            if current_time - last_cleanup_time >= cleanup_interval:
-                db.cleanupCache
-                print("Cache cleanup successful")
-                last_cleanup_time = current_time
-
-            if select.select([sys.stdin], [], [], 0.1)[0]:
-                ip_address = sys.stdin.readline().strip()
-                if ip_address == "exit":
-
-                    print("Exiting...")
-                    break
-
-                if ip_address:
-                    hostname = db.checkTimestamp(ip_address)
-
-                    if not hostname:
-                        hostname = db.getHost(ip_address)
-                        print("getHost() used, Time: ") # Time getHost() reverseDNS request
-                        db.updateCache(ip_address, hostname)
-
-                    print(f"Processed: {ip_address} -> {hostname}")
-
-    finally:
-        print("Closing cache")
-        db.closeConnection()
+    threading.Thread(target=db.routineLoop).start()
+    db.serverLoop()
 
 
 if __name__ == '__main__':
@@ -163,11 +169,3 @@ if __name__ == '__main__':
 
 #142.250.189.174 test ip address
 #sfo03s24-in-f14.1e100.net. test hostname
-"""class DnsCacheSync:
-    # Your existing __init__ method remains unchanged
-
-    # Add a method to start the MQTT loop in a separate thread
-    def start_mqtt_loop_in_thread(self):
-        thread = threading.Thread(target=self.client.loop_forever)
-        thread.start()
-        return thread  # Returning the thread might be useful for later control"""

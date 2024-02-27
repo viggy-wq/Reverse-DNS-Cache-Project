@@ -33,6 +33,13 @@ END
 # Delay to ensure commands don't overlap
 sleep 1
 
+osascript <<END
+tell application "Terminal"
+    do script "cd '$current_dir'; python3 hostname_resolver.py config.yaml"
+end tell
+END
+
+sleep 1
 # Command to run test.py
 osascript <<END
 tell application "Terminal"
@@ -40,12 +47,5 @@ tell application "Terminal"
 end tell
 END
 
-
-# Command to run rsi_test.py
-osascript <<END
-tell application "Terminal"
-    do script "cd '$current_dir'; python3 rsi_test.py"
-end tell
-END
 
 

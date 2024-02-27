@@ -45,9 +45,6 @@ class SubscriberDBSync:
 
             
     def onMessage(self, client, userdata, msg):
-        if msg.topic == "cleanup_procedure":
-            rows = msg.payload.decode()
-            #TDOD 
         if msg.topic == "ip_address":
             ip_address = msg.payload.decode()
             self.insert(ip_address)
