@@ -29,5 +29,5 @@ if client.connect("localhost", 1883, 60) != 0:
 
 for ip_address in ip_addresses:
     client.publish("ip_address", ip_address)
-    time.sleep(.2)
+    time.sleep(.1)
 client.disconnect()

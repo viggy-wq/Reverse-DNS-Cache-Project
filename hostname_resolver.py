@@ -163,3 +163,11 @@ if __name__ == '__main__':
 
 #142.250.189.174 test ip address
 #sfo03s24-in-f14.1e100.net. test hostname
+"""class DnsCacheSync:
+    # Your existing __init__ method remains unchanged
+
+    # Add a method to start the MQTT loop in a separate thread
+    def start_mqtt_loop_in_thread(self):
+        thread = threading.Thread(target=self.client.loop_forever)
+        thread.start()
+        return thread  # Returning the thread might be useful for later control"""

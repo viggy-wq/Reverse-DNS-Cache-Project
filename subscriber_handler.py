@@ -8,8 +8,10 @@ import select
 import paho.mqtt.client as paho
 import time
 
-CREATE_IP_ADDRESS_LIST = '''CREATE TABLE IF NOT EXISTS ip_addresses
-                 (ip_address TEXT PRIMARY KEY)'''
+CREATE_IP_ADDRESS_LIST = """CREATE TABLE IF NOT EXISTS ip_addresses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ip_address TEXT UNIQUE
+)""" 
 
 INSERT_IP_ADDRESS = "INSERT OR IGNORE INTO ip_addresses (ip_address) VALUES (?)"
 
@@ -23,6 +25,7 @@ class SubscriberDBSync:
         self.client = paho.Client(client_id="subscriberDBsync", callback_api_version=paho.CallbackAPIVersion.VERSION2)
         self.client.on_message = self.onMessage
         self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        self.conn.execute("PRAGMA busy_timeout = 30000")
         cursor = self.conn.cursor()
         cursor.execute(CREATE_IP_ADDRESS_LIST)
         self.conn.commit()
@@ -38,12 +41,17 @@ class SubscriberDBSync:
         cursor = self.conn.cursor()
         cursor.execute(INSERT_IP_ADDRESS,(ip_address,))
         self.conn.commit()
+        time.sleep(.1)
+
             
     def onMessage(self, client, userdata, msg):
+        if msg.topic == "cleanup_procedure":
+            rows = msg.payload.decode()
+            #TDOD 
         if msg.topic == "ip_address":
             ip_address = msg.payload.decode()
             self.insert(ip_address)
-            print(f"Inserted IP address: {ip_address}")
+            self.print_db()
 
     def print_db(self):
         cursor = self.conn.cursor()
