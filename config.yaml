@@ -12,3 +12,7 @@ jsonDump:
 
 cacheCleanup:
   timeout: 3600
+
+logging:
+  filename: "log_file.txt"
+  format: "%(asctime)s %(levelname)s %(message)s"
